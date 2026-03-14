@@ -140,12 +140,21 @@ def build_app() -> Application:
 
 app = build_app()
 
+import asyncio
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "8000"))
-    app.run_webhook(
-        listen="0.0.0.0",
-        port=port,
-        webhook_url=f"{WEBHOOK_URL}/telegram",
-        url_path="telegram",
-        drop_pending_updates=True,
-    )
+
+    async def main():
+        await app.initialize()
+        await app.start()
+        await app.bot.set_webhook(f"{WEBHOOK_URL}/telegram")
+        await app.updater.start_webhook(
+            listen="0.0.0.0",
+            port=port,
+            url_path="telegram",
+            webhook_url=f"{WEBHOOK_URL}/telegram",
+        )
+        await asyncio.Event().wait()
+
+    asyncio.run(main())
