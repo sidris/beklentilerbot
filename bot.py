@@ -1,6 +1,6 @@
 import os
-from datetime import datetime
 import asyncio
+from datetime import datetime
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -13,16 +13,21 @@ from telegram.ext import (
     filters,
 )
 
+from telegram.error import RetryAfter
 from supabase import create_client
 
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_SERVICE_ROLE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+WEBHOOK_URL = os.environ["WEBHOOK_URL"]
+
 
 supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
+
 ENTRY_TYPE, SOURCE, FTYPE, PERIOD, MEDIAN, MINVAL, MAXVAL, VALUE = range(8)
+
 
 SURVEYS = [
     "Bloomberg HT",
@@ -32,6 +37,14 @@ SURVEYS = [
     "ForInvest",
     "CNBC-E",
 ]
+
+
+async def safe_reply(message, text, reply_markup=None):
+    try:
+        await message.reply_text(text, reply_markup=reply_markup)
+    except RetryAfter as e:
+        await asyncio.sleep(e.retry_after)
+        await message.reply_text(text, reply_markup=reply_markup)
 
 
 def normalize_period(text):
@@ -44,7 +57,9 @@ def normalize_period(text):
 
 def normalize_value(text):
 
-    if text.lower() in ["yok", "-", "bos"]:
+    t = text.strip().lower()
+
+    if t in ["yok", "-", "bos", "skip"]:
         return None
 
     try:
@@ -58,7 +73,7 @@ def title_name(name):
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Yeni tahmin için /new yaz.")
+    await safe_reply(update.message, "Yeni tahmin girmek için /new yaz.")
 
 
 async def new_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -69,9 +84,10 @@ async def new_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
         InlineKeyboardButton("Kurum", callback_data="institution"),
     ]]
 
-    await update.message.reply_text(
+    await safe_reply(
+        update.message,
         "Hangi türde giriş yapacaksınız?",
-        reply_markup=InlineKeyboardMarkup(keyboard),
+        InlineKeyboardMarkup(keyboard),
     )
 
     return ENTRY_TYPE
@@ -112,20 +128,19 @@ async def source(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer()
 
         context.user_data["source_name"] = query.data.replace("survey_", "")
+        msg = query.message
 
     else:
 
         context.user_data["source_name"] = title_name(update.message.text)
+        msg = update.message
 
     keyboard = [[
         InlineKeyboardButton("PPK", callback_data="ppk"),
         InlineKeyboardButton("TÜFE", callback_data="tufe"),
     ]]
 
-    await update.effective_message.reply_text(
-        "Tahmin türü seç:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    await safe_reply(msg, "Tahmin türü seç:", InlineKeyboardMarkup(keyboard))
 
     return FTYPE
 
@@ -147,19 +162,19 @@ async def period(update: Update, context: ContextTypes.DEFAULT_TYPE):
     p = normalize_period(update.message.text)
 
     if not p:
-        await update.message.reply_text("Örnek: 2026-04")
+        await safe_reply(update.message, "Örnek: 2026-04")
         return PERIOD
 
     context.user_data["target_period"] = p
 
     if context.user_data["entry_type"] == "survey":
 
-        await update.message.reply_text("Median değeri (yoksa 'yok' yaz)")
+        await safe_reply(update.message, "Median değeri (yoksa 'yok' yaz)")
         return MEDIAN
 
     else:
 
-        await update.message.reply_text("Tahmin değeri")
+        await safe_reply(update.message, "Tahmin değeri")
         return VALUE
 
 
@@ -167,7 +182,7 @@ async def median(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data["median"] = normalize_value(update.message.text)
 
-    await update.message.reply_text("Min değeri (yoksa 'yok' yaz)")
+    await safe_reply(update.message, "Min değeri (yoksa 'yok' yaz)")
 
     return MINVAL
 
@@ -176,7 +191,7 @@ async def minval(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data["min"] = normalize_value(update.message.text)
 
-    await update.message.reply_text("Max değeri (yoksa 'yok' yaz)")
+    await safe_reply(update.message, "Max değeri (yoksa 'yok' yaz)")
 
     return MAXVAL
 
@@ -195,9 +210,30 @@ async def maxval(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "max": context.user_data.get("max"),
     }
 
-    supabase.table("forecast_entries").insert(payload).execute()
+    try:
 
-    await update.message.reply_text("Anket kaydedildi ✅")
+        result = supabase.table("forecast_entries").insert(payload).execute()
+        print("SUPABASE RESULT:", result)
+
+        await safe_reply(
+            update.message,
+            f"""Anket kaydedildi ✅
+
+Kaynak: {payload['source_name']}
+Tahmin: {payload['forecast_type']}
+Dönem: {payload['target_period']}
+
+Median: {payload['median']}
+Min: {payload['min']}
+Max: {payload['max']}
+"""
+        )
+
+    except Exception as e:
+
+        print("SUPABASE ERROR:", e)
+
+        await safe_reply(update.message, f"Supabase hata: {e}")
 
     context.user_data.clear()
 
@@ -216,16 +252,35 @@ async def value(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "value": val,
     }
 
-    supabase.table("forecast_entries").insert(payload).execute()
+    try:
 
-    await update.message.reply_text("Tahmin kaydedildi ✅")
+        result = supabase.table("forecast_entries").insert(payload).execute()
+        print("SUPABASE RESULT:", result)
+
+        await safe_reply(
+            update.message,
+            f"""Tahmin kaydedildi ✅
+
+Tür: {payload['entry_type']}
+Kaynak: {payload['source_name']}
+Tahmin: {payload['forecast_type']}
+Dönem: {payload['target_period']}
+Değer: {payload['value']}
+"""
+        )
+
+    except Exception as e:
+
+        print("SUPABASE ERROR:", e)
+
+        await safe_reply(update.message, f"Supabase hata: {e}")
 
     context.user_data.clear()
 
     return ConversationHandler.END
 
 
-def main():
+def build_app():
 
     app = Application.builder().token(BOT_TOKEN).build()
 
@@ -250,10 +305,30 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(conv)
 
-    print("Bot çalışıyor...")
+    return app
 
-    app.run_polling()
+
+app = build_app()
+
+
+async def main():
+
+    port = int(os.environ.get("PORT", "8000"))
+
+    await app.initialize()
+    await app.start()
+
+    await app.bot.set_webhook(f"{WEBHOOK_URL}/telegram")
+
+    await app.updater.start_webhook(
+        listen="0.0.0.0",
+        port=port,
+        url_path="telegram",
+        webhook_url=f"{WEBHOOK_URL}/telegram",
+    )
+
+    await asyncio.Event().wait()
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
