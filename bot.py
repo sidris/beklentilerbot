@@ -3,7 +3,6 @@ import asyncio
 from datetime import datetime
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.error import RetryAfter
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -14,16 +13,21 @@ from telegram.ext import (
     filters,
 )
 
+from telegram.error import RetryAfter
 from supabase import create_client
+
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_SERVICE_ROLE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
 WEBHOOK_URL = os.environ["WEBHOOK_URL"]
 
+
 supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
+
 ENTRY_TYPE, SOURCE, FTYPE, PERIOD, MEDIAN, MINVAL, MAXVAL, VALUE = range(8)
+
 
 SURVEYS = [
     "Bloomberg HT",
@@ -52,8 +56,12 @@ def normalize_period(text):
 
 
 def normalize_value(text):
-    if text.lower() in ["yok", "-", "skip"]:
+
+    t = text.strip().lower()
+
+    if t in ["yok", "-", "bos", "skip"]:
         return None
+
     try:
         return float(text.replace(",", "."))
     except:
@@ -61,11 +69,11 @@ def normalize_value(text):
 
 
 def title_name(name):
-    return " ".join([x.capitalize() for x in name.split()])
+    return " ".join([w.capitalize() for w in name.split()])
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await safe_reply(update.message, "Yeni tahmin için /new yaz.")
+    await safe_reply(update.message, "Yeni tahmin girmek için /new yaz.")
 
 
 async def new_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -202,14 +210,14 @@ async def maxval(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "max": context.user_data.get("max"),
     }
 
-    supabase.table("forecast_entries").upsert(
-        payload,
-        on_conflict="entry_type,source_name,forecast_type,target_period"
-    ).execute()
+    try:
 
-    await safe_reply(
-        update.message,
-        f"""Anket kaydedildi ✅
+        result = supabase.table("forecast_entries").insert(payload).execute()
+        print("SUPABASE RESULT:", result)
+
+        await safe_reply(
+            update.message,
+            f"""Anket kaydedildi ✅
 
 Kaynak: {payload['source_name']}
 Tahmin: {payload['forecast_type']}
@@ -219,7 +227,13 @@ Median: {payload['median']}
 Min: {payload['min']}
 Max: {payload['max']}
 """
-    )
+        )
+
+    except Exception as e:
+
+        print("SUPABASE ERROR:", e)
+
+        await safe_reply(update.message, f"Supabase hata: {e}")
 
     context.user_data.clear()
 
@@ -238,14 +252,14 @@ async def value(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "value": val,
     }
 
-    supabase.table("forecast_entries").upsert(
-        payload,
-        on_conflict="entry_type,source_name,forecast_type,target_period"
-    ).execute()
+    try:
 
-    await safe_reply(
-        update.message,
-        f"""Tahmin kaydedildi ✅
+        result = supabase.table("forecast_entries").insert(payload).execute()
+        print("SUPABASE RESULT:", result)
+
+        await safe_reply(
+            update.message,
+            f"""Tahmin kaydedildi ✅
 
 Tür: {payload['entry_type']}
 Kaynak: {payload['source_name']}
@@ -253,7 +267,13 @@ Tahmin: {payload['forecast_type']}
 Dönem: {payload['target_period']}
 Değer: {payload['value']}
 """
-    )
+        )
+
+    except Exception as e:
+
+        print("SUPABASE ERROR:", e)
+
+        await safe_reply(update.message, f"Supabase hata: {e}")
 
     context.user_data.clear()
 
