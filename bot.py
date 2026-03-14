@@ -16,16 +16,12 @@ from telegram.ext import (
 
 from supabase import create_client
 
-# ===== ENV =====
-
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_SERVICE_ROLE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
 WEBHOOK_URL = os.environ["WEBHOOK_URL"]
 
 supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
-
-# ===== STATES =====
 
 ENTRY_TYPE, SOURCE, FTYPE, PERIOD, MEDIAN, MINVAL, MAXVAL, VALUE = range(8)
 
@@ -37,8 +33,6 @@ SURVEYS = [
     "ForInvest",
     "CNBC-E",
 ]
-
-# ===== HELPERS =====
 
 
 async def safe_reply(message, text, reply_markup=None):
@@ -58,11 +52,8 @@ def normalize_period(text):
 
 
 def normalize_value(text):
-    t = text.strip().lower()
-
-    if t in ["yok", "bos", "boş", "-", "skip"]:
+    if text.lower() in ["yok", "-", "skip"]:
         return None
-
     try:
         return float(text.replace(",", "."))
     except:
@@ -70,10 +61,7 @@ def normalize_value(text):
 
 
 def title_name(name):
-    return " ".join([w.capitalize() for w in name.split()])
-
-
-# ===== COMMANDS =====
+    return " ".join([x.capitalize() for x in name.split()])
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -102,13 +90,14 @@ async def entry_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    et = query.data
-    context.user_data["entry_type"] = et
+    context.user_data["entry_type"] = query.data
 
-    if et == "survey":
+    if query.data == "survey":
 
-        keyboard = [[InlineKeyboardButton(x, callback_data=f"survey_{x}")]
-                    for x in SURVEYS]
+        keyboard = [
+            [InlineKeyboardButton(x, callback_data=f"survey_{x}")]
+            for x in SURVEYS
+        ]
 
         await query.edit_message_text(
             "Hangi anket?",
@@ -139,8 +128,8 @@ async def source(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg = update.message
 
     keyboard = [[
-        InlineKeyboardButton("PPK", callback_data="type_ppk"),
-        InlineKeyboardButton("TÜFE", callback_data="type_tufe"),
+        InlineKeyboardButton("PPK", callback_data="ppk"),
+        InlineKeyboardButton("TÜFE", callback_data="tufe"),
     ]]
 
     await safe_reply(msg, "Tahmin türü seç:", InlineKeyboardMarkup(keyboard))
@@ -153,8 +142,7 @@ async def forecast_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    ftype = query.data.replace("type_", "")
-    context.user_data["forecast_type"] = ftype
+    context.user_data["forecast_type"] = query.data
 
     await query.edit_message_text("Hedef dönem gir (YYYY-MM)")
 
@@ -214,16 +202,14 @@ async def maxval(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "max": context.user_data.get("max"),
     }
 
-    try:
+    supabase.table("forecast_entries").upsert(
+        payload,
+        on_conflict="entry_type,source_name,forecast_type,target_period"
+    ).execute()
 
-        supabase.table("forecast_entries").upsert(
-            payload,
-            on_conflict="entry_type,source_name,forecast_type,target_period"
-        ).execute()
-
-        await safe_reply(
-            update.message,
-            f"""Anket kaydedildi ✅
+    await safe_reply(
+        update.message,
+        f"""Anket kaydedildi ✅
 
 Kaynak: {payload['source_name']}
 Tahmin: {payload['forecast_type']}
@@ -233,11 +219,7 @@ Median: {payload['median']}
 Min: {payload['min']}
 Max: {payload['max']}
 """
-        )
-
-    except Exception as e:
-
-        await safe_reply(update.message, f"Supabase hata: {e}")
+    )
 
     context.user_data.clear()
 
@@ -256,16 +238,14 @@ async def value(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "value": val,
     }
 
-    try:
+    supabase.table("forecast_entries").upsert(
+        payload,
+        on_conflict="entry_type,source_name,forecast_type,target_period"
+    ).execute()
 
-        supabase.table("forecast_entries").upsert(
-            payload,
-            on_conflict="entry_type,source_name,forecast_type,target_period"
-        ).execute()
-
-        await safe_reply(
-            update.message,
-            f"""Tahmin kaydedildi ✅
+    await safe_reply(
+        update.message,
+        f"""Tahmin kaydedildi ✅
 
 Tür: {payload['entry_type']}
 Kaynak: {payload['source_name']}
@@ -273,18 +253,11 @@ Tahmin: {payload['forecast_type']}
 Dönem: {payload['target_period']}
 Değer: {payload['value']}
 """
-        )
-
-    except Exception as e:
-
-        await safe_reply(update.message, f"Supabase hata: {e}")
+    )
 
     context.user_data.clear()
 
     return ConversationHandler.END
-
-
-# ===== APP =====
 
 
 def build_app():
@@ -299,15 +272,14 @@ def build_app():
                 CallbackQueryHandler(source, pattern="^survey_"),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, source),
             ],
-            FTYPE: [CallbackQueryHandler(forecast_type, pattern="^type_")],
+            FTYPE: [CallbackQueryHandler(forecast_type)],
             PERIOD: [MessageHandler(filters.TEXT & ~filters.COMMAND, period)],
             MEDIAN: [MessageHandler(filters.TEXT & ~filters.COMMAND, median)],
             MINVAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, minval)],
             MAXVAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, maxval)],
             VALUE: [MessageHandler(filters.TEXT & ~filters.COMMAND, value)],
         },
-        fallbacks=[],
-        per_message=True
+        fallbacks=[]
     )
 
     app.add_handler(CommandHandler("start", start))
