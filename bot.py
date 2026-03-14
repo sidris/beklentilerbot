@@ -136,13 +136,21 @@ async def source(update: Update, context: ContextTypes.DEFAULT_TYPE):
         name = title_name(update.message.text)
         context.user_data["source_name"] = name
 
-    if context.user_data["entry_type"] == "survey":
+        if context.user_data["entry_type"] == "survey":
+        
+            keyboard = [[
+                InlineKeyboardButton("Median", callback_data="median"),
+                InlineKeyboardButton("Min", callback_data="min"),
+                InlineKeyboardButton("Max", callback_data="max"),
+            ]]
+        
+            await update.callback_query.edit_message_text(
+                "Anket metriği seç:",
+                reply_markup=InlineKeyboardMarkup(keyboard),
+            )
+        
+            return METRIC
 
-        keyboard = [[
-            InlineKeyboardButton("Median", callback_data="median"),
-            InlineKeyboardButton("Min", callback_data="min"),
-            InlineKeyboardButton("Max", callback_data="max"),
-        ]]
 
         if update.callback_query:
             await update.callback_query.edit_message_text(
