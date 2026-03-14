@@ -22,12 +22,9 @@ SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_SERVICE_ROLE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
 WEBHOOK_URL = os.environ["WEBHOOK_URL"]
 
-
 supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
-
 ENTRY_TYPE, SOURCE, FTYPE, PERIOD, MEDIAN, MINVAL, MAXVAL, VALUE = range(8)
-
 
 SURVEYS = [
     "Bloomberg HT",
@@ -56,7 +53,6 @@ def normalize_period(text):
 
 
 def normalize_value(text):
-
     t = text.strip().lower()
 
     if t in ["yok", "-", "bos", "skip"]:
@@ -232,7 +228,6 @@ Max: {payload['max']}
     except Exception as e:
 
         print("SUPABASE ERROR:", e)
-
         await safe_reply(update.message, f"Supabase hata: {e}")
 
     context.user_data.clear()
@@ -272,7 +267,6 @@ Değer: {payload['value']}
     except Exception as e:
 
         print("SUPABASE ERROR:", e)
-
         await safe_reply(update.message, f"Supabase hata: {e}")
 
     context.user_data.clear()
@@ -316,18 +310,15 @@ async def main():
     port = int(os.environ.get("PORT", "8000"))
 
     await app.initialize()
-    await app.start()
 
     await app.bot.set_webhook(f"{WEBHOOK_URL}/telegram")
 
-    await app.updater.start_webhook(
+    await app.run_webhook(
         listen="0.0.0.0",
         port=port,
         url_path="telegram",
         webhook_url=f"{WEBHOOK_URL}/telegram",
     )
-
-    await asyncio.Event().wait()
 
 
 if __name__ == "__main__":
