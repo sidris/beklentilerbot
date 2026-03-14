@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_SERVICE_ROLE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
-WEBHOOK_URL = os.environ["WEBHOOK_URL"]  # örn: https://your-bot.onrender.com
+WEBHOOK_URL = os.environ["https://beklentilerbot.onrender.com"]  # örn: https://your-bot.onrender.com
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
