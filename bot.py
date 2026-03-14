@@ -2,12 +2,7 @@ import os
 import asyncio
 from datetime import datetime
 
-from telegram import (
-    Update,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-)
-
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -27,7 +22,7 @@ WEBHOOK_URL = os.environ["WEBHOOK_URL"]
 
 supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
-ENTRY_TYPE, SOURCE, METRIC, FTYPE, PERIOD, VALUE = range(6)
+ENTRY_TYPE, SOURCE, FTYPE, PERIOD, MEDIAN, MINVAL, MAXVAL, VALUE = range(8)
 
 SURVEYS = [
     "Bloomberg HT",
@@ -48,6 +43,8 @@ def normalize_period(text):
 
 
 def normalize_value(text):
+    if text.lower() in ["yok", "boş", "skip"]:
+        return None
     try:
         return float(text.replace(",", "."))
     except:
@@ -136,51 +133,7 @@ async def source(update: Update, context: ContextTypes.DEFAULT_TYPE):
         name = title_name(update.message.text)
         context.user_data["source_name"] = name
 
-        if context.user_data["entry_type"] == "survey":
-        
-            keyboard = [[
-                InlineKeyboardButton("Median", callback_data="median"),
-                InlineKeyboardButton("Min", callback_data="min"),
-                InlineKeyboardButton("Max", callback_data="max"),
-            ]]
-        
-            await update.callback_query.edit_message_text(
-                "Anket metriği seç:",
-                reply_markup=InlineKeyboardMarkup(keyboard),
-            )
-        
-            return METRIC
-
-
-        if update.callback_query:
-            await update.callback_query.edit_message_text(
-                "Anket metriği seç:",
-                reply_markup=InlineKeyboardMarkup(keyboard),
-            )
-        else:
-            await update.message.reply_text(
-                "Anket metriği seç:",
-                reply_markup=InlineKeyboardMarkup(keyboard),
-            )
-
-        return METRIC
-
-    else:
-
-        await update.message.reply_text("Tahmin türü gir (ppk / tufe)")
-
-        return FTYPE
-
-
-async def metric(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    query = update.callback_query
-    await query.answer()
-
-    metric = query.data
-    context.user_data["survey_metric"] = metric
-
-    await query.edit_message_text("Tahmin türü gir (ppk / tufe)")
+    await update.message.reply_text("Tahmin türü gir (ppk / tufe)")
 
     return FTYPE
 
@@ -210,18 +163,79 @@ async def period(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data["target_period"] = p
 
-    await update.message.reply_text("Tahmin değeri gir")
+    if context.user_data["entry_type"] == "survey":
 
-    return VALUE
+        await update.message.reply_text("Median değeri (yoksa 'yok' yaz)")
+
+        return MEDIAN
+
+    else:
+
+        await update.message.reply_text("Tahmin değeri")
+
+        return VALUE
+
+
+async def median(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    val = normalize_value(update.message.text)
+    context.user_data["median"] = val
+
+    await update.message.reply_text("Min değeri (yoksa 'yok' yaz)")
+
+    return MINVAL
+
+
+async def minval(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    val = normalize_value(update.message.text)
+    context.user_data["min"] = val
+
+    await update.message.reply_text("Max değeri (yoksa 'yok' yaz)")
+
+    return MAXVAL
+
+
+async def maxval(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    val = normalize_value(update.message.text)
+    context.user_data["max"] = val
+
+    payload = {
+        "entry_type": "survey",
+        "source_name": context.user_data["source_name"],
+        "forecast_type": context.user_data["forecast_type"],
+        "target_period": context.user_data["target_period"],
+        "median": context.user_data.get("median"),
+        "min": context.user_data.get("min"),
+        "max": context.user_data.get("max"),
+    }
+
+    supabase.table("forecast_entries").upsert(
+        payload,
+        on_conflict="entry_type,source_name,forecast_type,target_period"
+    ).execute()
+
+    await update.message.reply_text(
+        f"""
+Anket kaydedildi ✅
+
+Kaynak: {payload['source_name']}
+Tahmin: {payload['forecast_type']}
+Dönem: {payload['target_period']}
+
+Median: {payload['median']}
+Min: {payload['min']}
+Max: {payload['max']}
+"""
+    )
+
+    return ConversationHandler.END
 
 
 async def value(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     val = normalize_value(update.message.text)
-
-    if val is None:
-        await update.message.reply_text("Geçersiz sayı")
-        return VALUE
 
     payload = {
         "entry_type": context.user_data["entry_type"],
@@ -229,25 +243,24 @@ async def value(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "forecast_type": context.user_data["forecast_type"],
         "target_period": context.user_data["target_period"],
         "value": val,
-        "survey_metric": context.user_data.get("survey_metric"),
-        "telegram_user": update.effective_user.username,
-        "telegram_chat_id": str(update.effective_chat.id),
     }
 
-    try:
+    supabase.table("forecast_entries").upsert(
+        payload,
+        on_conflict="entry_type,source_name,forecast_type,target_period"
+    ).execute()
 
-        supabase.table("forecast_entries").upsert(
-            payload,
-            on_conflict="entry_type,source_name,forecast_type,target_period"
-        ).execute()
+    await update.message.reply_text(
+        f"""
+Tahmin kaydedildi ✅
 
-        await update.message.reply_text("Tahmin kaydedildi ✅")
-
-    except Exception as e:
-
-        await update.message.reply_text(f"Hata: {e}")
-
-    context.user_data.clear()
+Tür: {payload['entry_type']}
+Kaynak: {payload['source_name']}
+Tahmin: {payload['forecast_type']}
+Dönem: {payload['target_period']}
+Değer: {payload['value']}
+"""
+    )
 
     return ConversationHandler.END
 
@@ -264,9 +277,11 @@ def build_app():
                 CallbackQueryHandler(source, pattern="^survey_"),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, source)
             ],
-            METRIC: [CallbackQueryHandler(metric)],
             FTYPE: [MessageHandler(filters.TEXT & ~filters.COMMAND, forecast_type)],
             PERIOD: [MessageHandler(filters.TEXT & ~filters.COMMAND, period)],
+            MEDIAN: [MessageHandler(filters.TEXT & ~filters.COMMAND, median)],
+            MINVAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, minval)],
+            MAXVAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, maxval)],
             VALUE: [MessageHandler(filters.TEXT & ~filters.COMMAND, value)],
         },
         fallbacks=[]
