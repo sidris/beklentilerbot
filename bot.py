@@ -1,4 +1,3 @@
-import logging
 import os
 import asyncio
 from datetime import datetime
@@ -8,19 +7,18 @@ from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
 )
+
 from telegram.ext import (
     Application,
     CommandHandler,
-    ContextTypes,
-    ConversationHandler,
-    MessageHandler,
     CallbackQueryHandler,
+    MessageHandler,
+    ConversationHandler,
+    ContextTypes,
     filters,
 )
 
 from supabase import create_client
-
-logging.basicConfig(level=logging.INFO)
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 SUPABASE_URL = os.environ["SUPABASE_URL"]
@@ -29,166 +27,159 @@ WEBHOOK_URL = os.environ["WEBHOOK_URL"]
 
 supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
-SOURCE, FTYPE, PERIOD, VALUE = range(4)
+ENTRY_TYPE, SURVEY, NAME, FTYPE, PERIOD, VALUE = range(6)
 
-# Kurum listesi
-INSTITUTIONS = [
-    "Goldman Sachs",
-    "JP Morgan",
-    "Morgan Stanley",
-    "Deutsche Bank",
-    "HSBC",
-    "Alaattin Aktaş",
-    "Selva Demiralp",
-    "Cem Çakmaklı",
+SURVEYS = [
+    "Bloomberg HT",
+    "Reuters",
+    "Matriks",
+    "AA Finans",
+    "ForInvest",
+    "CNBC-E",
 ]
 
 
-# ---------- yardımcı fonksiyonlar ----------
-
-def normalize_period(text):
-    try:
-        dt = datetime.strptime(text, "%Y-%m")
-        return dt.strftime("%Y-%m-01")
-    except:
-        return None
-
-
-def normalize_value(text):
-    text = text.replace(",", ".")
-    try:
-        return float(text)
-    except:
-        return None
-
-
-# ---------- komutlar ----------
+# ---------- start ----------
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     await update.message.reply_text(
-        "Merhaba 👋\n\nYeni tahmin girmek için /new yaz."
+        "Yeni tahmin girmek için /new yaz."
     )
 
 
-# ---------- kurum seç ----------
+# ---------- entry type ----------
 
 async def new_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     keyboard = [
-        [InlineKeyboardButton(name, callback_data=f"src_{name}")]
-        for name in INSTITUTIONS
+        [
+            InlineKeyboardButton("Anket", callback_data="entry_survey"),
+            InlineKeyboardButton("Kişi", callback_data="entry_person"),
+        ]
     ]
 
     await update.message.reply_text(
-        "Kurum seç:",
+        "Hangi türde giriş yapacaksınız?",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
-    return SOURCE
+    return ENTRY_TYPE
 
 
-async def source_select(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def entry_type_select(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     query = update.callback_query
     await query.answer()
 
-    source = query.data.replace("src_", "")
-    context.user_data["source_name"] = source
+    entry_type = query.data.replace("entry_", "")
+    context.user_data["entry_type"] = entry_type
 
-    keyboard = [
-        [
-            InlineKeyboardButton("PPK", callback_data="type_ppk"),
-            InlineKeyboardButton("TÜFE", callback_data="type_tufe"),
+    if entry_type == "survey":
+
+        keyboard = [
+            [InlineKeyboardButton(name, callback_data=f"survey_{name}")]
+            for name in SURVEYS
         ]
-    ]
 
-    await query.edit_message_text(
-        f"Kurum: {source}\n\nTahmin türünü seç:",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-    )
+        await query.edit_message_text(
+            "Hangi anket?",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+        )
+
+        return SURVEY
+
+    else:
+
+        await query.edit_message_text("Kişi adı gir:")
+
+        return NAME
+
+
+# ---------- survey select ----------
+
+async def survey_select(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    query = update.callback_query
+    await query.answer()
+
+    name = query.data.replace("survey_", "")
+
+    context.user_data["source_name"] = name
+
+    await query.edit_message_text("Tahmin türü gir: ppk / tufe")
 
     return FTYPE
 
 
-# ---------- tür seç ----------
+# ---------- person name ----------
 
-async def type_select(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def name_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    query = update.callback_query
-    await query.answer()
+    name = update.message.text.title()
 
-    if query.data == "type_ppk":
-        context.user_data["forecast_type"] = "PPK"
-    else:
-        context.user_data["forecast_type"] = "TUFE"
+    context.user_data["source_name"] = name
 
-    await query.edit_message_text(
-        "Hedef dönem gir (YYYY-MM)\n\nÖrnek: 2026-04"
-    )
+    await update.message.reply_text("Tahmin türü gir: ppk / tufe")
+
+    return FTYPE
+
+
+# ---------- type ----------
+
+async def type_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    context.user_data["forecast_type"] = update.message.text.lower()
+
+    await update.message.reply_text("Hedef dönem gir (YYYY-MM)")
 
     return PERIOD
 
 
-# ---------- dönem ----------
+# ---------- period ----------
 
 async def period_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    period = normalize_period(update.message.text)
-
-    if not period:
-        await update.message.reply_text("Geçersiz tarih. Örnek: 2026-04")
+    try:
+        dt = datetime.strptime(update.message.text, "%Y-%m")
+        period = dt.strftime("%Y-%m-01")
+    except:
+        await update.message.reply_text("Örnek: 2026-04")
         return PERIOD
 
     context.user_data["target_period"] = period
 
-    await update.message.reply_text("Tahmin değeri gir:")
+    await update.message.reply_text("Tahmin değeri gir")
 
     return VALUE
 
 
-# ---------- değer ----------
+# ---------- value ----------
 
 async def value_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    value = normalize_value(update.message.text)
-
-    if value is None:
-        await update.message.reply_text("Geçersiz sayı.")
-        return VALUE
+    value = float(update.message.text.replace(",", "."))
 
     payload = {
+        "entry_type": context.user_data["entry_type"],
         "source_name": context.user_data["source_name"],
-        "source_type": "institution",
         "forecast_type": context.user_data["forecast_type"],
         "target_period": context.user_data["target_period"],
         "value": value,
-        "telegram_user": update.effective_user.username
-        or str(update.effective_user.id),
+        "telegram_user": update.effective_user.username,
         "telegram_chat_id": str(update.effective_chat.id),
     }
 
-    supabase.table("forecast_entries").insert(payload).execute()
+    supabase.table("forecast_entries").upsert(payload).execute()
 
-    await update.message.reply_text(
-        "✅ Tahmin kaydedildi\n\n"
-        f"Kurum: {payload['source_name']}\n"
-        f"Tür: {payload['forecast_type']}\n"
-        f"Dönem: {payload['target_period']}\n"
-        f"Değer: {payload['value']}"
-    )
+    await update.message.reply_text("Tahmin kaydedildi ✅")
 
     context.user_data.clear()
 
     return ConversationHandler.END
 
 
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data.clear()
-    await update.message.reply_text("İşlem iptal edildi.")
-    return ConversationHandler.END
-
-
-# ---------- bot setup ----------
+# ---------- setup ----------
 
 def build_app():
 
@@ -197,12 +188,14 @@ def build_app():
     conv = ConversationHandler(
         entry_points=[CommandHandler("new", new_entry)],
         states={
-            SOURCE: [CallbackQueryHandler(source_select)],
-            FTYPE: [CallbackQueryHandler(type_select)],
-            PERIOD: [MessageHandler(filters.TEXT & ~filters.COMMAND, period_step)],
-            VALUE: [MessageHandler(filters.TEXT & ~filters.COMMAND, value_step)],
+            ENTRY_TYPE: [CallbackQueryHandler(entry_type_select)],
+            SURVEY: [CallbackQueryHandler(survey_select)],
+            NAME: [MessageHandler(filters.TEXT, name_step)],
+            FTYPE: [MessageHandler(filters.TEXT, type_step)],
+            PERIOD: [MessageHandler(filters.TEXT, period_step)],
+            VALUE: [MessageHandler(filters.TEXT, value_step)],
         },
-        fallbacks=[CommandHandler("cancel", cancel)],
+        fallbacks=[],
     )
 
     app.add_handler(CommandHandler("start", start))
@@ -213,8 +206,6 @@ def build_app():
 
 app = build_app()
 
-
-# ---------- webhook ----------
 
 async def main():
 
