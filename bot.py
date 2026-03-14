@@ -51,26 +51,12 @@ def normalize_value(text):
         return None
 
 
-def normalize_type(text):
-    t = text.lower()
-
-    if t in ["ppk", "faiz"]:
-        return "ppk"
-
-    if t in ["tufe", "tüfe", "enflasyon"]:
-        return "tufe"
-
-    return None
-
-
 def title_name(name):
     return " ".join([w.capitalize() for w in name.split()])
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Yeni tahmin girmek için /new yaz."
-    )
+    await update.message.reply_text("Yeni tahmin için /new yaz.")
 
 
 async def new_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -114,7 +100,6 @@ async def entry_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
 
         await query.edit_message_text("İsim gir:")
-
         return SOURCE
 
 
@@ -133,22 +118,27 @@ async def source(update: Update, context: ContextTypes.DEFAULT_TYPE):
         name = title_name(update.message.text)
         context.user_data["source_name"] = name
 
-    await update.message.reply_text("Tahmin türü gir (ppk / tufe)")
+    keyboard = [[
+        InlineKeyboardButton("PPK", callback_data="ppk"),
+        InlineKeyboardButton("TÜFE", callback_data="tufe"),
+    ]]
+
+    await update.effective_message.reply_text(
+        "Tahmin türünü seç:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
     return FTYPE
 
 
 async def forecast_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    ftype = normalize_type(update.message.text)
+    query = update.callback_query
+    await query.answer()
 
-    if not ftype:
-        await update.message.reply_text("ppk veya tufe yaz.")
-        return FTYPE
+    context.user_data["forecast_type"] = query.data
 
-    context.user_data["forecast_type"] = ftype
-
-    await update.message.reply_text("Hedef dönem (YYYY-MM)")
+    await query.edit_message_text("Hedef dönem gir (YYYY-MM)")
 
     return PERIOD
 
@@ -166,40 +156,33 @@ async def period(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data["entry_type"] == "survey":
 
         await update.message.reply_text("Median değeri (yoksa 'yok' yaz)")
-
         return MEDIAN
 
     else:
 
         await update.message.reply_text("Tahmin değeri")
-
         return VALUE
 
 
 async def median(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    val = normalize_value(update.message.text)
-    context.user_data["median"] = val
+    context.user_data["median"] = normalize_value(update.message.text)
 
     await update.message.reply_text("Min değeri (yoksa 'yok' yaz)")
-
     return MINVAL
 
 
 async def minval(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    val = normalize_value(update.message.text)
-    context.user_data["min"] = val
+    context.user_data["min"] = normalize_value(update.message.text)
 
     await update.message.reply_text("Max değeri (yoksa 'yok' yaz)")
-
     return MAXVAL
 
 
 async def maxval(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    val = normalize_value(update.message.text)
-    context.user_data["max"] = val
+    context.user_data["max"] = normalize_value(update.message.text)
 
     payload = {
         "entry_type": "survey",
@@ -277,7 +260,7 @@ def build_app():
                 CallbackQueryHandler(source, pattern="^survey_"),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, source)
             ],
-            FTYPE: [MessageHandler(filters.TEXT & ~filters.COMMAND, forecast_type)],
+            FTYPE: [CallbackQueryHandler(forecast_type)],
             PERIOD: [MessageHandler(filters.TEXT & ~filters.COMMAND, period)],
             MEDIAN: [MessageHandler(filters.TEXT & ~filters.COMMAND, median)],
             MINVAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, minval)],
