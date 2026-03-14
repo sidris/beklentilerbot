@@ -1,5 +1,6 @@
 import logging
 import os
+import asyncio
 from datetime import datetime
 
 from telegram import Update
@@ -140,7 +141,7 @@ def build_app() -> Application:
 
 app = build_app()
 
-import asyncio
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "8000"))
