@@ -38,7 +38,9 @@ INSTITUTIONS = [
     "Morgan Stanley",
     "Deutsche Bank",
     "HSBC",
-    "TCMB",
+    "Alaattin Aktaş",
+    "Selva Demiralp",
+    "Cem Çakmaklı",
 ]
 
 
@@ -116,9 +118,9 @@ async def type_select(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
 
     if query.data == "type_ppk":
-        context.user_data["forecast_type"] = "ppk"
+        context.user_data["forecast_type"] = "PPK"
     else:
-        context.user_data["forecast_type"] = "tufe"
+        context.user_data["forecast_type"] = "TUFE"
 
     await query.edit_message_text(
         "Hedef dönem gir (YYYY-MM)\n\nÖrnek: 2026-04"
