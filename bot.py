@@ -43,7 +43,7 @@ def normalize_period(text):
 
 
 def normalize_value(text):
-    if text.lower() in ["yok", "boş", "skip"]:
+    if text.lower() in ["yok", "skip", "bos"]:
         return None
     try:
         return float(text.replace(",", "."))
@@ -52,7 +52,7 @@ def normalize_value(text):
 
 
 def title_name(name):
-    return " ".join([w.capitalize() for w in name.split()])
+    return " ".join([x.capitalize() for x in name.split()])
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -80,10 +80,9 @@ async def entry_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    entry_type = query.data
-    context.user_data["entry_type"] = entry_type
+    context.user_data["entry_type"] = query.data
 
-    if entry_type == "survey":
+    if query.data == "survey":
 
         keyboard = [
             [InlineKeyboardButton(x, callback_data=f"survey_{x}")]
@@ -110,21 +109,19 @@ async def source(update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
         await query.answer()
 
-        name = query.data.replace("survey_", "")
-        context.user_data["source_name"] = name
+        context.user_data["source_name"] = query.data.replace("survey_", "")
 
     else:
 
-        name = title_name(update.message.text)
-        context.user_data["source_name"] = name
+        context.user_data["source_name"] = title_name(update.message.text)
 
     keyboard = [[
-        InlineKeyboardButton("PPK", callback_data="ppk"),
-        InlineKeyboardButton("TÜFE", callback_data="tufe"),
+        InlineKeyboardButton("PPK", callback_data="type_ppk"),
+        InlineKeyboardButton("TÜFE", callback_data="type_tufe"),
     ]]
 
     await update.effective_message.reply_text(
-        "Tahmin türünü seç:",
+        "Tahmin türü seç:",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
@@ -136,7 +133,9 @@ async def forecast_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    context.user_data["forecast_type"] = query.data
+    ftype = query.data.replace("type_", "")
+
+    context.user_data["forecast_type"] = ftype
 
     await query.edit_message_text("Hedef dönem gir (YYYY-MM)")
 
@@ -189,9 +188,9 @@ async def maxval(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "source_name": context.user_data["source_name"],
         "forecast_type": context.user_data["forecast_type"],
         "target_period": context.user_data["target_period"],
-        "median": context.user_data.get("median"),
-        "min": context.user_data.get("min"),
-        "max": context.user_data.get("max"),
+        "median": context.user_data["median"],
+        "min": context.user_data["min"],
+        "max": context.user_data["max"],
     }
 
     supabase.table("forecast_entries").upsert(
@@ -200,8 +199,7 @@ async def maxval(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ).execute()
 
     await update.message.reply_text(
-        f"""
-Anket kaydedildi ✅
+        f"""Anket kaydedildi ✅
 
 Kaynak: {payload['source_name']}
 Tahmin: {payload['forecast_type']}
@@ -234,8 +232,7 @@ async def value(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ).execute()
 
     await update.message.reply_text(
-        f"""
-Tahmin kaydedildi ✅
+        f"""Tahmin kaydedildi ✅
 
 Tür: {payload['entry_type']}
 Kaynak: {payload['source_name']}
@@ -260,7 +257,7 @@ def build_app():
                 CallbackQueryHandler(source, pattern="^survey_"),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, source)
             ],
-            FTYPE: [CallbackQueryHandler(forecast_type)],
+            FTYPE: [CallbackQueryHandler(forecast_type, pattern="^type_")],
             PERIOD: [MessageHandler(filters.TEXT & ~filters.COMMAND, period)],
             MEDIAN: [MessageHandler(filters.TEXT & ~filters.COMMAND, median)],
             MINVAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, minval)],
