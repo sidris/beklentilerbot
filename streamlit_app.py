@@ -1,98 +1,190 @@
+"""
+streamlit_app.py — Forecast Tracker ana sayfa.
+Giriş ekranı ve özet metrikler.
+"""
+import time
 import streamlit as st
-import pandas as pd
-import plotly.express as px
-from supabase import create_client
+import utils
 
-SUPABASE_URL = st.secrets["SUPABASE_URL"]
-SUPABASE_KEY = st.secrets["SUPABASE_SERVICE_ROLE_KEY"]
+st.set_page_config(
+    page_title="Forecast Tracker",
+    page_icon="📊",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+utils.apply_theme()
 
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-APP_PASSWORD = st.secrets["APP_PASSWORD"]
-ADMIN_PASSWORD = st.secrets["ADMIN_PASSWORD"]
+def render_login():
+    st.markdown("<div class='app-title'>📊 Forecast Tracker</div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='app-subtitle'>Anket, kurum ve kişi tahminleri • karşılaştır • analiz et</div>",
+        unsafe_allow_html=True,
+    )
 
-pwd = st.text_input("Şifre", type="password")
+    c1, c2, c3 = st.columns(3, gap="large")
+    with c1:
+        st.markdown(
+            """
+            <div class="soft-card">
+              <h3>🤖 Telegram Bot ile Giriş</h3>
+              <ul>
+                <li>/new komutuyla tahmin ekle</li>
+                <li>Anket, Kurum, Kişi ayrımı</li>
+                <li>PPK ve TÜFE tahminleri</li>
+              </ul>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with c2:
+        st.markdown(
+            """
+            <div class="soft-card">
+              <h3>🏆 Performans Analizi</h3>
+              <ul>
+                <li>Dönem bazlı liderlik tabloları</li>
+                <li>Gerçekleşene karşı kıyas</li>
+                <li>Tahmin revizyon takibi</li>
+              </ul>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with c3:
+        st.markdown(
+            """
+            <div class="soft-card">
+              <h3>📊 Canlı Piyasa Verisi</h3>
+              <ul>
+                <li>TCMB EVDS (hibrit TÜFE)</li>
+                <li>BIS (politika faizi)</li>
+                <li>Otomatik karşılaştırma</li>
+              </ul>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-if pwd != APP_PASSWORD:
+    st.write("")
+    left, mid, right = st.columns([1.2, 1, 1.2])
+    with mid:
+        st.markdown("<div class='login-box'>", unsafe_allow_html=True)
+        with st.form("login_form", clear_on_submit=True):
+            pwd = st.text_input("Erişim Şifresi", type="password")
+            submit = st.form_submit_button("Giriş Yap", type="primary", use_container_width=True)
+        if submit:
+            if pwd == utils.get_app_password():
+                st.session_state["giris_yapildi"] = True
+                st.success("Giriş başarılı!")
+                time.sleep(0.2)
+                st.rerun()
+            else:
+                st.error("Hatalı şifre.")
+        st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown(
+            "<div class='hint'>Şifre girince tüm sayfalar açılır.</div>",
+            unsafe_allow_html=True,
+        )
+
+
+# --- Giriş kontrolü ---
+if not utils.check_login():
+    st.markdown(
+        """
+        <style>
+          [data-testid="stSidebar"] {display: none;}
+          [data-testid="stSidebarCollapsedControl"] {display: none;}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    render_login()
     st.stop()
 
-res = supabase.table("forecast_entries").select("*").execute()
+# --- Giriş yapıldıktan sonra ---
+st.sidebar.markdown("### 📌 Menü")
+st.sidebar.caption("Sayfalar için sol menüyü kullanın.")
+st.sidebar.markdown("---")
 
-df = pd.DataFrame(res.data)
+if st.sidebar.button("🚪 Çıkış Yap", use_container_width=True):
+    st.session_state["giris_yapildi"] = False
+    st.session_state["admin_yapildi"] = False
+    st.rerun()
 
-if df.empty:
-    st.write("Henüz kayıt yok.")
-    st.stop()
+st.markdown("<div class='app-title' style='font-size:32px;'>👋 Hoş geldiniz</div>",
+            unsafe_allow_html=True)
+st.markdown(
+    "<div class='app-subtitle'>Aşağıda sistem özetini görebilir, sol menüden sayfalara geçebilirsiniz.</div>",
+    unsafe_allow_html=True,
+)
 
-df["target_period"] = pd.to_datetime(df["target_period"])
-df["created_at"] = pd.to_datetime(df["created_at"])
+try:
+    df = utils.get_all_entries()
+    types_df = utils.get_forecast_types()
 
-st.title("Forecast Tracker")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Toplam Tahmin", f"{len(df):,}")
 
-tab1, tab2, tab3, tab4 = st.tabs([
-    "Revizyon",
-    "Heatmap",
-    "Veri",
-    "Admin"
-])
+    if not df.empty:
+        c2.metric("Kaynak Sayısı", f"{df['source_name'].nunique()}")
+        c3.metric("Tahmin Türü", f"{df['forecast_type'].nunique()}")
+        c4.metric("Hedef Dönem", f"{df['target_period'].nunique()}")
+    else:
+        c2.metric("Kaynak", "—")
+        c3.metric("Tür", "—")
+        c4.metric("Dönem", "—")
 
-with tab1:
-
-    fig = px.line(
-        df,
-        x="created_at",
-        y="value",
-        color="source_name"
+    if not df.empty and "entry_type" in df.columns:
+        st.markdown("#### Katılımcı Dağılımı")
+        ec1, ec2, ec3 = st.columns(3)
+        for col, etype in zip([ec1, ec2, ec3], ["survey", "institution", "person"]):
+            n = int((df["entry_type"] == etype).sum())
+            col.metric(utils.ENTRY_TYPE_LABELS[etype], f"{n:,}")
+except Exception as e:
+    st.error(f"Özet yüklenemedi: {e}")
+    st.info(
+        "İlk kurulumda bu normal. Supabase bağlantısını ve `schema.sql`'in "
+        "çalıştırıldığını kontrol edin."
     )
 
-    st.plotly_chart(fig)
+st.markdown("---")
 
-
-with tab2:
-
-    pivot = df.pivot_table(
-        index="source_name",
-        columns=df["target_period"].dt.strftime("%Y-%m"),
-        values="value",
-        aggfunc="last"
+st.markdown("### ⚡ Hızlı Eylemler")
+a1, a2, a3 = st.columns(3)
+with a1:
+    st.markdown(
+        """
+        <div class="soft-card">
+          <h3>📈 Dashboard</h3>
+          <div style="color:#94A3B8;font-size:13px;">
+            Liderlik tablosu, konsensüs grafiği ve ısı haritası.
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
-
-    st.dataframe(pivot)
-
-
-with tab3:
-
-    st.dataframe(df)
-
-
-with tab4:
-
-    admin = st.text_input("Admin şifre", type="password")
-
-    if admin != ADMIN_PASSWORD:
-        st.stop()
-
-    id_select = st.selectbox("Kayıt seç", df["id"])
-
-    row = df[df["id"] == id_select].iloc[0]
-
-    new_value = st.number_input(
-        "Yeni değer",
-        value=float(row["value"])
+with a2:
+    st.markdown(
+        """
+        <div class="soft-card">
+          <h3>🔄 Revizyon Takibi</h3>
+          <div style="color:#94A3B8;font-size:13px;">
+            Bir katılımcının aynı hedefe verdiği tahminlerin zaman içindeki değişimi.
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
-
-    if st.button("Güncelle"):
-
-        supabase.table("forecast_entries").update(
-            {"value": new_value}
-        ).eq("id", int(id_select)).execute()
-
-        st.success("Güncellendi")
-
-    if st.button("Sil"):
-
-        supabase.table("forecast_entries").delete().eq(
-            "id", int(id_select)
-        ).execute()
-
-        st.success("Silindi")
+with a3:
+    st.markdown(
+        """
+        <div class="soft-card">
+          <h3>⚙️ Admin</h3>
+          <div style="color:#94A3B8;font-size:13px;">
+            Demo üret, veri düzenle/sil, tam sıfırlama.
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
