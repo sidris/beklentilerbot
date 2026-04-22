@@ -279,17 +279,17 @@ def upsert_entry(
     payload = {k: v for k, v in payload.items() if v is not None}
 
     today_date = (on_date or date.today()).isoformat()
+    payload["entry_date"] = today_date
 
     try:
         # Aynı gün içinde aynı kombinasyon var mı?
         existing = (
             sb.table(TABLE_ENTRIES)
-            .select("id, created_at")
+            .select("id")
             .eq("source_name", payload["source_name"])
             .eq("forecast_type", forecast_type)
             .eq("target_period", tp_str)
-            .gte("created_at", f"{today_date}T00:00:00+00:00")
-            .lt("created_at", f"{today_date}T23:59:59.999+00:00")
+            .eq("entry_date", today_date)
             .limit(1)
             .execute()
         )
@@ -692,6 +692,7 @@ def generate_demo_data(seed: int = 42) -> Tuple[int, str]:
                             "target_period": tp,
                             "created_at": fdate.isoformat() + "T12:00:00+00:00",
                             "updated_at": fdate.isoformat() + "T12:00:00+00:00",
+                            "entry_date": fdate.isoformat(),
                         }
 
                         if etype == "survey":
@@ -709,7 +710,7 @@ def generate_demo_data(seed: int = 42) -> Tuple[int, str]:
     seen = {}
     for p in all_payloads:
         k = (p["source_name"], p["forecast_type"], p["target_period"],
-             p["created_at"][:10])
+             p["entry_date"])
         seen[k] = p
     all_payloads = list(seen.values())
 

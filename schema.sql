@@ -34,20 +34,23 @@ create table if not exists public.forecast_entries (
     note            text,
 
     created_at      timestamptz not null default now(),
-    updated_at      timestamptz not null default now()
+    updated_at      timestamptz not null default now(),
+
+    -- Revizyon için "gün": bot/streamlit bunu doldurur, default bugün (UTC).
+    -- Ayrı kolon olması unique index'in IMMUTABLE olmasını sağlar.
+    entry_date      date not null default (now() at time zone 'utc')::date
 );
 
 -- ============================================================
 -- Revizyon mantığı: aynı gün aynı (kaynak, tür, hedef) için TEK satır
 -- Farklı günde yeni satır (geçmiş korunur)
 -- ============================================================
--- Bunun için "tarih kısmı" üzerinden unique index kullanıyoruz.
 create unique index if not exists forecast_entries_daily_unique
     on public.forecast_entries (
         source_name,
         forecast_type,
         target_period,
-        (created_at::date)
+        entry_date
     );
 
 -- ============================================================

@@ -94,10 +94,31 @@ payload = {
 }
 ```
 
+## entry_date kolonu (opsiyonel ama önerilen)
+
+Şema'da revizyon mantığı için `entry_date` kolonu var. Default değeri bugün, yani bot hiçbir şey yazmasa da çalışır. Ama gün içinde aynı kaynak aynı tahmin türünü yeniden girerse **duplicate key** hatası alır.
+
+Bot'un insert'inde `entry_date` yazarsan ve aynı gün güncelleme olursa, bot `upsert` mantığı kullanmalı:
+
+```python
+from datetime import date
+
+# insert yerine upsert
+payload["entry_date"] = date.today().isoformat()
+
+supabase.table("forecast_entries").upsert(
+    payload,
+    on_conflict="source_name,forecast_type,target_period,entry_date"
+).execute()
+```
+
+Bu sayede aynı gün içinde aynı kombinasyon tekrar girilirse güncellenir, farklı gün olunca yeni satır olur.
+
 ## Özet
 
 **Minimum yapman gereken:**
 1. Bot'ta `"min"` → `"min_val"` ve `"max"` → `"max_val"` değişikliği (2 satır).
 2. Bot'ta `forecast_type="tufe"` yerine `"tufe_aylik"` kullan (1 satır) — ya da B şıkkındaki gibi genişlet.
+3. (Önerilen) Bot `insert` yerine `upsert(on_conflict=...)` kullansın ki gün içinde duplicate hatası çıkmasın.
 
 Geri kalan her şey mevcut kodla uyumlu çalışır.
